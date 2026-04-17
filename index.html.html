@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orchid — Smart AI Chat</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {} }
+  }
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;font-family:'DM Sans',system-ui,sans-serif}
+body{overflow:hidden}
+/* Use small viewport height so the input bar stays above the virtual keyboard */
+#root{height:100svh;display:flex;flex-direction:column}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:#9ca3af}
+
+/* Mobile drawer — left sidebar */
+.left-sidebar{transition:transform .24s cubic-bezier(.4,0,.2,1)}
+@media(max-width:639px){
+  .left-sidebar{position:fixed;top:0;left:0;height:100svh;z-index:40;transform:translateX(-100%)}
+  .left-sidebar.open{transform:translateX(0)}
+}
+/* Mobile drawer — right panel */
+.right-panel{transition:transform .24s cubic-bezier(.4,0,.2,1)}
+@media(max-width:767px){
+  .right-panel{position:fixed;top:0;right:0;height:100svh;z-index:40;transform:translateX(100%)}
+  .right-panel.open{transform:translateX(0)}
+}
+/* Overlay backdrop */
+.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:39;
+  animation:fadeIn .15s ease-out}
+/* Touch-friendly minimum tap targets */
+@media(max-width:639px){
+  button{min-height:36px}
+  .conv-item{padding:10px 12px}
+}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:#9ca3af}
+
+/* Animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideRight{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pulse3{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{0%{opacity:.6}50%{opacity:1}100%{opacity:.6}}
+
+.msg-enter{animation:fadeUp .18s ease-out}
+.plan-enter{animation:slideRight .22s ease-out}
+.sidebar-enter{animation:fadeIn .15s ease-out}
+
+.thinking-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#9ca3af;animation:pulse3 1.4s ease-in-out infinite}
+.thinking-dot:nth-child(2){animation-delay:.22s}
+.thinking-dot:nth-child(3){animation-delay:.44s}
+
+.spin{animation:spin .8s linear infinite}
+
+/* Markdown prose */
+.prose{font-size:14px;line-height:1.75;color:#1f2937}
+.prose h1,.prose h2,.prose h3,.prose h4{font-weight:600;margin:1em 0 .4em;line-height:1.3;color:#111827}
+.prose h1{font-size:1.35em}
+.prose h2{font-size:1.18em}
+.prose h3{font-size:1.05em}
+.prose p{margin:.45em 0}
+.prose ul,.prose ol{padding-left:1.4em;margin:.4em 0}
+.prose li{margin:.18em 0}
+.prose strong{font-weight:600}
+.prose em{font-style:italic}
+.prose a{color:#d97757;text-decoration:underline}
+.prose code{font-family:'JetBrains Mono',monospace;font-size:.82em;background:#f3f4f6;padding:.12em .32em;border-radius:4px;color:#374151}
+.prose pre{background:#1a1a2e;color:#e2e8f0;padding:14px 16px;border-radius:10px;overflow-x:auto;margin:.7em 0;font-size:.8em;line-height:1.6}
+.prose pre code{background:none;color:inherit;padding:0;font-size:1em}
+.prose blockquote{border-left:3px solid #e5e7eb;padding-left:.9em;color:#6b7280;margin:.7em 0;font-style:italic}
+.prose table{width:100%;border-collapse:collapse;margin:.7em 0;font-size:.9em}
+.prose th{background:#f9fafb;font-weight:600;text-align:left;padding:.45em .7em;border:1px solid #e5e7eb}
+.prose td{padding:.4em .7em;border:1px solid #e5e7eb}
+.prose tr:nth-child(even) td{background:#fafafa}
+.prose hr{border:none;border-top:1px solid #e5e7eb;margin:1em 0}
+
+/* Sidebar items */
+.conv-item{transition:background .12s}
+.conv-item:hover{background:rgba(255,255,255,.09)}
+.conv-item.active{background:rgba(255,255,255,.13)}
+
+/* Focus styles */
+textarea:focus,input:focus{outline:none}
+button{cursor:pointer}
+
+/* Token display */
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* Custom scrollbar for dark sidebar */
+.dark-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12)}
+.dark-scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
+
+/* Code highlighting basic */
+.prose pre .kw{color:#c792ea}
+.prose pre .str{color:#c3e88d}
+.prose pre .cm{color:#546e7a;font-style:italic}
+.prose pre .num{color:#f78c6c}
+
+/* Input placeholder */
+textarea::placeholder{color:#9ca3af}
+input::placeholder{color:#6b7280}
+
+/* Attachment chips */
+.att-chip{display:flex;align-items:center;gap:6px;padding:4px 8px 4px 6px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;font-size:11px;color:#374151;max-width:180px;transition:border-color .12s}
+.att-chip:hover{border-color:#d1d5db}
+.att-remove{width:14px;height:14px;border-radius:3px;display:flex;align-items:center;justify-content:center;color:#9ca3af;cursor:pointer;transition:color .1s}
+.att-remove:hover{color:#ef4444}
+.att-menu{position:absolute;bottom:calc(100% + 8px);left:0;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:6px;z-index:50;width:210px;box-shadow:0 4px 20px rgba(0,0,0,.1)}
+.att-menu-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;font-size:12px;color:#374151;transition:background .1s}
+.att-menu-item:hover{background:#f9fafb}
+.att-menu-item svg{shrink:0}
+.msg-img{max-width:260px;max-height:200px;border-radius:10px;object-fit:cover;border:1px solid #e5e7eb;display:block;margin-bottom:6px}
+</style>
+</head>
+<body class="bg-white">
+<div id="root"></div>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo,useReducer} = React;
+
+/* ═══════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════ */
+
+const MODELS = [
+  {id:'claude-haiku-4-5-20251001', name:'Haiku',    short:'Haiku',   label:'Fast & cheap',     dot:'#10b981'},
+  {id:'claude-sonnet-4-6',         name:'Sonnet 4.6',short:'Sonnet',  label:'Balanced',         dot:'#3b82f6'},
+  {id:'claude-opus-4-6',           name:'Opus 4.6',  short:'Opus',    label:'Most powerful',    dot:'#8b5cf6'},
+  {id:'smart',                     name:'⚡ Smart',   short:'Smart',   label:'Auto-orchestrate', dot:'#d97757'},
+];
+
+const MODEL_DISPLAY = {
+  'claude-haiku-4-5-20251001':'Haiku',
+  'claude-sonnet-4-6':'Sonnet',
+  'claude-opus-4-6':'Opus',
+};
+
+// Model routing: each task type → {model, thinking, thinkingBudget, contextWindow, webSearch}
+// contextWindow = how many history messages to include (per-task context slicing)
+const TASK_CONFIG = {
+  web_search:      {model:'claude-haiku-4-5-20251001', thinking:false, contextWindow:1, webSearch:true},
+  research:        {model:'claude-haiku-4-5-20251001', thinking:false, contextWindow:1, webSearch:true},
+  lookup:          {model:'claude-haiku-4-5-20251001', thinking:false, contextWindow:1, webSearch:true},
+  format:          {model:'claude-haiku-4-5-20251001', thinking:false, contextWindow:2},
+  summarize:       {model:'claude-haiku-4-5-20251001', thinking:false, contextWindow:3},
+  code:            {model:'claude-sonnet-4-6',          thinking:false, contextWindow:6},
+  analysis:        {model:'claude-sonnet-4-6',          thinking:false, contextWindow:6},
+  writing:         {model:'claude-sonnet-4-6',          thinking:false, contextWindow:4},
+  planning:        {model:'claude-sonnet-4-6',          thinking:false, contextWindow:4},
+  // Extended thinking — Sonnet only (Haiku does NOT support thinking)
+  deep_analysis:   {model:'claude-sonnet-4-6',          thinking:true,  thinkingBudget:8000,  contextWindow:8},
+  strategic:       {model:'claude-sonnet-4-6',          thinking:true,  thinkingBudget:10000, contextWindow:8},
+  // Opus: only when genuinely beyond Sonnet + thinking
+  complex:         {model:'claude-opus-4-6',            thinking:false, contextWindow:10},
+  // Synthesis always Sonnet streaming
+  synthesis:       {model:'claude-sonnet-4-6',          thinking:false, contextWindow:4},
+};
+const TASK_MODEL = Object.fromEntries(Object.entries(TASK_CONFIG).map(([k,v])=>[k,v.model]));
+
+const TASK_EMOJI = {
+  web_search:'🌐', research:'🔍', lookup:'🔍', format:'📝', summarize:'📌',
+  code:'💻', analysis:'📊', writing:'✍️', planning:'📋',
+  deep_analysis:'🧠', strategic:'🎯', complex:'⚡', synthesis:'✨',
+};
+
+// ── Pricing (per 1M tokens, input/output) ───────
+const PRICING = {
+  'claude-haiku-4-5-20251001': {inp:0.80,  out:4.00},
+  'claude-sonnet-4-6':         {inp:3.00,  out:15.00},
+  'claude-opus-4-6':           {inp:15.00, out:75.00},
+};
+const SONNET_P = PRICING['claude-sonnet-4-6'];
+
+function calcCost(modelId, inp, out){
+  const p = PRICING[modelId]||SONNET_P;
+  return (inp/1e6)*p.inp + (out/1e6)*p.out;
+}
+function calcSonnetCost(inp, out){
+  return (inp/1e6)*SONNET_P.inp + (out/1e6)*SONNET_P.out;
+}
+function fmtUSD(n){
+  if(n>=0.01) return '$'+n.toFixed(3);
+  if(n>=0.001) return '$'+n.toFixed(4);
+  return '$'+n.toFixed(5);
+}
+
+const PLANNER_PROMPT = `You are a task orchestration planner. Decompose the user query into 2-6 subtasks and assign each to the most appropriate model tier.
+
+Model tiers:
+- web_search / research / lookup → Haiku + live web search (current events, facts, URLs, prices)
+- format / summarize → Haiku (cheap, fast, no reasoning)
+- code / analysis / writing / planning → Sonnet standard (balanced)
+- deep_analysis → Sonnet + extended thinking (tax/legal/financial analysis, multi-step logic)
+- strategic → Sonnet + extended thinking + large budget (architecture, full strategy plans)
+- complex → Opus (rare: genuinely beyond Sonnet + thinking; use sparingly)
+- synthesis → Sonnet streaming (ALWAYS the final task)
+
+RESPOND ONLY WITH VALID JSON, no markdown fences:
+{"reasoning":"brief strategy","tasks":[{"id":1,"type":"web_search","description":"what this does","prompt":"complete self-contained prompt","depends_on":[]},{"id":2,"type":"synthesis","description":"combine results","prompt":"synthesize","depends_on":[1]}]}
+
+Rules:
+- Always end with exactly one "synthesis" task
+- Set depends_on to IDs of tasks whose OUTPUT this task needs as input
+  - Tasks with depends_on:[] run IN PARALLEL — use this for independent lookups
+  - A synthesis task should depend on all preceding tasks
+- Each non-synthesis prompt must be fully self-contained — include the original question
+- Use web_search for anything requiring current/live information (news, prices, docs, code versions)
+- Use deep_analysis for tax, legal, financial, or multi-step logical reasoning
+- Use strategic for multi-angle planning and architecture decisions
+- Only use complex (Opus) when the task is genuinely beyond Sonnet + thinking
+
+DOCUMENT CONTENT RULE (critical):
+When "Extracted document content" is provided below, you MUST use the specific details
+from that extraction — exact job titles, skill keywords, technologies, years of experience —
+when writing web_search task prompts. Do NOT use generic keywords. The search prompts
+should read like a targeted recruiter query built from the actual document.`;
+
+// ── Query complexity scorer for Opus auto-escalation ──────────────
+function scoreComplexity(query){
+  let score=0;
+  const q=query.toLowerCase();
+  // Length signal
+  if(query.length>400)score++;
+  if(query.length>800)score++;
+  // Multiple distinct questions
+  const qmarks=(query.match(/\?/g)||[]).length;
+  if(qmarks>=2)score++;
+  if(qmarks>=4)score++;
+  // Domain/complexity keywords
+  const heavy=/\b(comprehensive|exhaustive|detailed analysis|audit|legal brief|architecture|multi-year|optimization|compare all|full strategy|step.by.step|thoroughly|in depth|critique|evaluate|trade.?off)/i;
+  if(heavy.test(query))score++;
+  // Financial/legal/technical
+  const domain=/\b(irs|tax|roth|fape|iep|oal|motion|brief|databricks|pipeline|index methodology|rmd|aca|subsidy|ltcg|niit)\b/i;
+  if(domain.test(query))score+=2;
+  return score;
+}
+
+const SYNTHESIS_PROMPT = `You synthesize subtask results into a single coherent, well-formatted response. Combine naturally, avoid repetition, use markdown where helpful.`;
+
+/* ═══════════════════════════════════════════════
+   STORAGE (localStorage)
+═══════════════════════════════════════════════ */
+
+const S = {
+  get:(k)=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
+  del:(k)=>{try{localStorage.removeItem(k)}catch{}},
+};
+
+const todayKey = () => `orchid-day:${new Date().toISOString().slice(0,10)}`;
+
+function getDayTokens(){return S.get(todayKey())||{inp:0,out:0}}
+function addDayTokens(inp,out){const d=getDayTokens();S.set(todayKey(),{inp:d.inp+inp,out:d.out+out})}
+
+function getConvList(){return S.get('orchid-convs')||[]}
+function setConvList(l){S.set('orchid-convs',l)}
+function getMessages(id){return S.get(`orchid-msgs:${id}`)||[]}
+function setMessages(id,msgs){S.set(`orchid-msgs:${id}`,msgs)}
+function getMeta(id){return S.get(`orchid-meta:${id}`)||{}}
+function setMeta(id,m){S.set(`orchid-meta:${id}`,m)}
+
+function saveConv(id,msgs,title,model,chatToks){
+  setMessages(id,msgs);
+  setMeta(id,{title,model,chatToks,updatedAt:Date.now()});
+  const list=getConvList();
+  const i=list.findIndex(c=>c.id===id);
+  const entry={id,title,updatedAt:Date.now()};
+  if(i>=0)list[i]=entry; else list.unshift(entry);
+  setConvList(list);
+  return list;
+}
+
+function deleteConv(id){
+  S.del(`orchid-msgs:${id}`);
+  S.del(`orchid-meta:${id}`);
+  const list=getConvList().filter(c=>c.id!==id);
+  setConvList(list);
+  return list;
+}
+
+function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+
+/* ═══════════════════════════════════════════════
+   FILE / ATTACHMENT UTILITIES
+═══════════════════════════════════════════════ */
+
+const MAX_IMG_PX = 1600;   // resize images larger than this
+const MAX_TEXT   = 150000; // truncate text files at 150 KB
+
+function readAsBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+function readAsText(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result);
+    r.onerror=rej;
+    r.readAsText(file);
+  });
+}
+
+// Resize image, return {data (base64 jpeg), thumb (data-URL)}
+function resizeImageFile(file){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      let w=img.naturalWidth, h=img.naturalHeight;
+      if(w>MAX_IMG_PX||h>MAX_IMG_PX){
+        if(w>=h){h=Math.round(h*MAX_IMG_PX/w);w=MAX_IMG_PX}
+        else{w=Math.round(w*MAX_IMG_PX/h);h=MAX_IMG_PX}
+      }
+      const c=document.createElement('canvas');
+      c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      const thumb=c.toDataURL('image/jpeg',.85);
+      res({data:thumb.split(',')[1],thumb});
+    };
+    img.onerror=rej;
+    img.src=url;
+  });
+}
+
+async function processFile(file){
+  const id=genId();
+  const{name,size,type}=file;
+  if(type.startsWith('image/')){
+    if(size>20*1024*1024)throw new Error('Image too large (max 20 MB)');
+    const{data,thumb}=await resizeImageFile(file);
+    return{id,type:'image',name,mediaType:'image/jpeg',data,thumb,size};
+  }
+  if(type==='application/pdf'){
+    if(size>32*1024*1024)throw new Error('PDF too large (max 32 MB)');
+    const data=await readAsBase64(file);
+    return{id,type:'pdf',name,mediaType:'application/pdf',data,thumb:null,size};
+  }
+  // Text / code / csv / etc.
+  let text=await readAsText(file);
+  if(text.length>MAX_TEXT)text=text.slice(0,MAX_TEXT)+'\n\n[... file truncated at 150 KB]';
+  return{id,type:'text',name,content:text,thumb:null,size};
+}
+
+async function captureScreenshot(){
+  const stream=await navigator.mediaDevices.getDisplayMedia({video:{cursor:'never'},audio:false});
+  return new Promise((res,rej)=>{
+    const video=document.createElement('video');
+    video.srcObject=stream;
+    video.muted=true;
+    video.onloadedmetadata=()=>{
+      video.play();
+      // Wait 2 frames for first real frame
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        let w=video.videoWidth, h=video.videoHeight;
+        if(w>MAX_IMG_PX*2){h=Math.round(h*MAX_IMG_PX*2/w);w=MAX_IMG_PX*2}
+        const c=document.createElement('canvas');
+        c.width=w;c.height=h;
+        c.getContext('2d').drawImage(video,0,0,w,h);
+        stream.getTracks().forEach(t=>t.stop());
+        const thumb=c.toDataURL('image/jpeg',.9);
+        res({id:genId(),type:'image',name:'Screenshot',mediaType:'image/jpeg',data:thumb.split(',')[1],thumb,size:0});
+      }));
+    };
+    video.onerror=rej;
+  });
+}
+
+// Build API content array from text + attachments
+function buildApiContent(text,attachments){
+  if(!attachments||attachments.length===0)return text;
+  const parts=[];
+  for(const a of attachments){
+    if(a.type==='image')
+      parts.push({type:'image',source:{type:'base64',media_type:a.mediaType,data:a.data}});
+    else if(a.type==='pdf')
+      parts.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:a.data}});
+    else if(a.type==='text')
+      parts.push({type:'text',text:`**Attached file: ${a.name}**\n\`\`\`\n${a.content}\n\`\`\``});
+  }
+  if(text.trim())parts.push({type:'text',text:text.trim()});
+  return parts;
+}
+
+// For display in message history
+function AttachmentDisplay({attachments}){
+  if(!attachments||attachments.length===0)return null;
+  return(
+    <div className="flex flex-wrap gap-2 mb-2">
+      {attachments.map(a=>(
+        <div key={a.id} className="att-chip">
+          {a.thumb
+            ? <img src={a.thumb} alt={a.name} style={{width:28,height:28,objectFit:'cover',borderRadius:4}}/>
+            : <div style={{width:28,height:28,borderRadius:4,background:a.type==='pdf'?'#fee2e2':a.type==='text'?'#eff6ff':'#f3f4f6',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {a.type==='pdf'
+                  ? <svg width="13" height="13" fill="none" stroke="#dc2626" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  : <svg width="13" height="13" fill="none" stroke="#3b82f6" strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+                }
+              </div>
+          }
+          <span className="truncate flex-1 text-xs" style={{maxWidth:100}}>{a.name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   API CLIENT
+═══════════════════════════════════════════════ */
+
+async function callClaude({model,messages,system,apiKey,stream=false,onChunk,maxTokens=4096,thinking=false,thinkingBudget=8000,tools=[],signal}){
+  const effectiveModel = model==='smart'?'claude-sonnet-4-6':model;
+  const effectiveMax = thinking ? Math.max(maxTokens, thinkingBudget+1024) : maxTokens;
+  const toolsArr = tools.length>0 ? tools : undefined;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    signal,   // ← AbortController signal
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true',
+    },
+    body:JSON.stringify({
+      model:effectiveModel,
+      max_tokens:effectiveMax,
+      messages,
+      ...(system?{system}:{}),
+      ...(thinking?{thinking:{type:'enabled',budget_tokens:thinkingBudget}}:{}),
+      ...(toolsArr?{tools:toolsArr}:{}),
+      ...(stream?{stream:true}:{}),
+    })
+  });
+
+  if(!res.ok){
+    let msg='API error '+res.status;
+    try{const e=await res.json();msg=e.error?.message||msg}catch{}
+    throw new Error(msg);
+  }
+
+  if(stream&&onChunk){
+    const reader=res.body.getReader();
+    const dec=new TextDecoder();
+    let text='',buf='';
+    let usage={input_tokens:0,output_tokens:0};
+    let activeBlockType='';
+    while(true){
+      // Check abort before each read
+      if(signal?.aborted) throw new DOMException('Aborted','AbortError');
+      const{done,value}=await reader.read();
+      if(done)break;
+      buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');
+      buf=lines.pop();
+      for(const line of lines){
+        if(!line.startsWith('data: '))continue;
+        const raw=line.slice(6).trim();
+        if(raw==='[DONE]')continue;
+        try{
+          const evt=JSON.parse(raw);
+          if(evt.type==='message_start'&&evt.message?.usage)
+            usage.input_tokens=evt.message.usage.input_tokens||0;
+          if(evt.type==='content_block_start')
+            activeBlockType=evt.content_block?.type||'';
+          if(evt.type==='content_block_stop')
+            activeBlockType='';
+          // Only stream text_delta from pure text blocks — skip thinking, tool_use, tool_result
+          if(evt.type==='content_block_delta'&&evt.delta?.type==='text_delta'&&activeBlockType==='text'){
+            text+=evt.delta.text;
+            onChunk(evt.delta.text);
+          }
+          if(evt.type==='message_delta'&&evt.usage)
+            usage.output_tokens=evt.usage.output_tokens||0;
+        }catch{}
+      }
+    }
+    return{text,usage};
+  }else{
+    const data=await res.json();
+    // Return only text blocks — skip thinking, tool_use, tool_result
+    const textContent=data.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+    return{text:textContent,usage:data.usage||{input_tokens:0,output_tokens:0}};
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   SMART ORCHESTRATOR
+═══════════════════════════════════════════════ */
+
+async function orchestrate({userMessage,apiContent,attachmentNames=[],history,apiKey,onStep,onChunk,signal}){
+  const steps=[];
+  const push=(s)=>{const idx=steps.findIndex(x=>x.id===s.id);if(idx>=0)steps[idx]={...steps[idx],...s};else steps.push(s);onStep([...steps])};
+
+  // True if the current message has files/images attached
+  const hasAttachments = Array.isArray(apiContent) && attachmentNames.length>0;
+  // File-only content blocks (images, pdfs, docs) — stripped of the text turn
+  // Used to inject into task calls so the model can read the files
+  const fileBlocks = hasAttachments
+    ? apiContent.filter(b=>b.type!=='text')
+    : [];
+
+  // Helper: build task content = files (if applicable) + task-specific prompt text
+  const taskContent=(prompt, includeFiles)=>{
+    if(includeFiles && fileBlocks.length>0)
+      return [...fileBlocks, {type:'text', text:prompt}];
+    return prompt;
+  };
+
+  // ── Phase 0: Pre-extract documents (BEFORE planning) ─────────
+  // Runs first when files are attached so the planner gets actual content
+  // (titles, skills, keywords) to build precise search queries from — not guesses.
+  const results={};
+  const taskCosts=[];
+  let docContext='';
+  if(hasAttachments && fileBlocks.length>0){
+    push({id:'__extract',label:`Reading ${attachmentNames.map(a=>a.name).join(', ')}`,model:'Haiku 📎',status:'running'});
+    try{
+      const extR=await callClaude({
+        model:'claude-haiku-4-5-20251001',
+        messages:[{role:'user',content:[
+          ...fileBlocks,
+          {type:'text',text:`Extract the key information from this document relevant to: "${userMessage}"\n\nProvide a structured summary including:\n- Professional titles / roles\n- Key skills, technologies, tools, domains\n- Years of experience and seniority\n- Notable achievements or keywords\n- Any facts directly relevant to the query\n\nBe specific — this extraction drives search query construction.`}
+        ]}],
+        apiKey,
+        maxTokens:800,
+        signal,
+      });
+      docContext=extR.text;
+      const extCost=calcCost('claude-haiku-4-5-20251001',extR.usage.input_tokens||0,extR.usage.output_tokens||0);
+      taskCosts.push({model:'claude-haiku-4-5-20251001',inp:extR.usage.input_tokens||0,out:extR.usage.output_tokens||0,cost:extCost});
+      push({id:'__extract',status:'done',tokens:extR.usage,cost:extCost,
+        detail:docContext.slice(0,120)+'…'});
+    }catch(e){
+      push({id:'__extract',status:'warn',detail:`Could not read file: ${e.message}`});
+    }
+  }
+
+  // ── Complexity scoring → planner model selection ──────────────
+  const complexScore = scoreComplexity(userMessage);
+  const plannerModel = complexScore>=3 ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+  const plannerLabel = complexScore>=3 ? 'Sonnet' : 'Haiku';
+
+  // ── Phase 1: Plan ────────────────────────────────────────────
+  const attachCtx = hasAttachments
+    ? `\nAttached files: ${attachmentNames.map(a=>`${a.name} (${a.type})`).join(', ')}.`
+    : '';
+  // Inject extracted content — cap at 1200 chars to keep planner input manageable
+  const docCtx = docContext
+    ? `\n\nExtracted document content:\n${docContext.slice(0,1200)}${docContext.length>1200?'\n[... truncated]':''}\n\nUse the above specific titles, skills, and keywords when writing web_search task prompts.`
+    : '';
+
+  push({id:'__plan',label:'Decomposing query',model:plannerLabel,status:'running',
+    detail:complexScore>=3?`Complex query (score ${complexScore}) — using Sonnet planner`:undefined});
+  let plan;
+  try{
+    const r=await callClaude({
+      model:plannerModel,
+      messages:[{role:'user',content:`User query: "${userMessage}"\n\nHistory messages: ${history.length}.\nComplexity score: ${complexScore}/10.${attachCtx}${docCtx}\n\nDecompose into subtasks. Use web_search for live/current information.`}],
+      system:PLANNER_PROMPT,
+      apiKey,
+      maxTokens:1400,  // bumped: docCtx can be large, plan JSON can be long
+      signal,
+    });
+    // Robust JSON extraction:
+    // 1. strip markdown fences (```json ... ```)
+    // 2. find outermost { ... } block in case model added preamble/postamble text
+    let txt=r.text.trim();
+    txt=txt.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/\s*```$/,'');
+    const jsonStart=txt.indexOf('{');
+    const jsonEnd=txt.lastIndexOf('}');
+    if(jsonStart===-1||jsonEnd===-1||jsonEnd<jsonStart)
+      throw new Error(`No JSON object found in planner response: ${txt.slice(0,120)}`);
+    txt=txt.slice(jsonStart,jsonEnd+1);
+    plan=JSON.parse(txt);
+    // Validate minimal structure
+    if(!Array.isArray(plan.tasks)||plan.tasks.length===0)
+      throw new Error('Plan has no tasks array');
+    push({id:'__plan',status:'done',tokens:r.usage,detail:plan.reasoning});
+  }catch(e){
+    const isHardError=/credit|billing|authentication|invalid x-api-key|overloaded|529|500/i.test(e.message);
+    if(isHardError){push({id:'__plan',status:'error',detail:e.message});throw e;}
+    // Show a useful snippet so you can debug what the model actually returned
+    const snippet=e.message.slice(0,140);
+    plan={reasoning:'Planner fallback',tasks:[
+      {id:1,type:'analysis',description:'Answer the query',prompt:userMessage,depends_on:[]},
+      {id:2,type:'synthesis',description:'Finalize',prompt:userMessage,depends_on:[1]},
+    ]};
+    push({id:'__plan',status:'warn',detail:`Fallback — ${snippet}`});
+  }
+
+  // ── Phase 2: Parallel wave executor ──────────────────────────
+  const completed=new Set();
+  const execTasks=plan.tasks.filter(t=>t.type!=='synthesis');
+  let remaining=[...execTasks];
+
+  while(remaining.length>0){
+    const wave=remaining.filter(t=>(t.depends_on||[]).every(d=>completed.has(d)));
+    if(wave.length===0)break;
+    remaining=remaining.filter(t=>!wave.find(w=>w.id===t.id));
+
+    wave.forEach(task=>{
+      const cfg=TASK_CONFIG[task.type]||TASK_CONFIG.analysis;
+      const thinkingLabel=cfg.thinking?' 🧠':'';
+      const webLabel=cfg.webSearch?' 🌐':'';
+      // Show 📎 badge when task will receive file content
+      const fileLabel=(!cfg.webSearch&&hasAttachments)?' 📎':'';
+      const modelLabel=(MODEL_DISPLAY[cfg.model]||cfg.model)+thinkingLabel+webLabel+fileLabel;
+      push({id:`t${task.id}`,label:task.description,model:modelLabel,status:'running',
+        thinking:cfg.thinking,parallel:wave.length>1});
+    });
+
+    await Promise.allSettled(wave.map(async task=>{
+      const cfg=TASK_CONFIG[task.type]||TASK_CONFIG.analysis;
+      const{model,thinking,thinkingBudget,contextWindow,webSearch}=cfg;
+      const ctxWindow=contextWindow||4;
+
+      // Web/search tasks don't need attached files (they're doing internet lookups)
+      // All other tasks (analysis, code, deep_analysis, etc.) receive the files
+      const includeFiles = !webSearch && hasAttachments;
+
+      const taskHistory=[
+        ...history.slice(-ctxWindow),
+        {role:'user', content: taskContent(task.prompt, includeFiles)},
+      ];
+      const taskTools=webSearch?[{type:'web_search_20250305',name:'web_search'}]:[];
+
+      try{
+        const r=await callClaude({
+          model, messages:taskHistory, apiKey,
+          maxTokens:2048,
+          thinking:thinking||false,
+          thinkingBudget:thinkingBudget||8000,
+          tools:taskTools,
+          signal,
+        });
+        results[task.id]=r.text;
+        const taskCost=calcCost(model,r.usage.input_tokens||0,r.usage.output_tokens||0);
+        taskCosts.push({model,inp:r.usage.input_tokens||0,out:r.usage.output_tokens||0,cost:taskCost});
+        push({id:`t${task.id}`,status:'done',tokens:r.usage,cost:taskCost});
+      }catch(e){
+        results[task.id]=`[Error: ${e.message}]`;
+        push({id:`t${task.id}`,status:'error',detail:e.message});
+      }
+      completed.add(task.id);
+    }));
+  }
+
+  // ── Guard: abort if every exec task failed ───────────────────
+  const errorResults=Object.values(results).filter(r=>r.startsWith('[Error:'));
+  const successResults=Object.values(results).filter(r=>!r.startsWith('[Error:'));
+  if(execTasks.length>0&&successResults.length===0){
+    const firstErr=errorResults[0]?.replace('[Error: ','').replace(/\]$/,'')||'All subtasks failed';
+    push({id:'__synth',status:'error',detail:'Skipped — all tasks failed'});
+    throw new Error(firstErr);
+  }
+
+  // ── Phase 3: Synthesize (Sonnet, streaming) ──────────────────
+  push({id:'__synth',label:'Synthesizing answer',model:'Sonnet'+(hasAttachments?' 📎':''),status:'running'});
+  const synthContext=execTasks
+    .filter(t=>results[t.id]&&!results[t.id].startsWith('[Error:'))
+    .map(t=>`### ${t.description}\n${results[t.id]}`)
+    .join('\n\n');
+
+  // Synthesis user turn: always include attached files so the model can reference them
+  const synthPromptText=`Original query: "${userMessage}"\n\nSubtask results:\n\n${synthContext}\n\nSynthesize into a complete, well-formatted response.`;
+  const synthUserContent = hasAttachments
+    ? [...fileBlocks, {type:'text', text:synthPromptText}]
+    : synthPromptText;
+
+  const synthMessages=[
+    ...history.slice(-4),
+    {role:'user', content:synthUserContent},
+  ];
+
+  let synth;
+  try{
+    synth=await callClaude({
+      model:'claude-sonnet-4-6',
+      messages:synthMessages,
+      system:SYNTHESIS_PROMPT,
+      apiKey,
+      stream:true,
+      onChunk,
+      maxTokens:4096,
+      signal,
+    });
+  }catch(e){
+    push({id:'__synth',status:'error',detail:e.message});
+    throw e; // propagate so send() stops streaming and shows error
+  }
+
+  const synthCost=calcCost('claude-sonnet-4-6',synth.usage.input_tokens||0,synth.usage.output_tokens||0);
+  taskCosts.push({model:'claude-sonnet-4-6',inp:synth.usage.input_tokens||0,out:synth.usage.output_tokens||0,cost:synthCost});
+  push({id:'__synth',status:'done',tokens:synth.usage,cost:synthCost});
+
+  // ── Cost savings calculation ──────────────────
+  const totalInp  = taskCosts.reduce((s,t)=>s+t.inp,0);
+  const totalOut  = taskCosts.reduce((s,t)=>s+t.out,0);
+  const actualCost= taskCosts.reduce((s,t)=>s+t.cost,0);
+  const sonnetCost= calcSonnetCost(totalInp,totalOut);
+  const saved     = sonnetCost - actualCost;
+  const savedPct  = sonnetCost>0 ? Math.round(saved/sonnetCost*100) : 0;
+
+  const totalUsage={input_tokens:totalInp,output_tokens:totalOut};
+
+  return{
+    text:synth.text,
+    usage:totalUsage,
+    costData:{actualCost,sonnetCost,saved,savedPct},
+  };
+}
+
+/* ═══════════════════════════════════════════════
+   MARKDOWN
+═══════════════════════════════════════════════ */
+
+function Md({content}){
+  const html=useMemo(()=>{
+    if(!content)return'';
+    try{return marked.parse(content,{breaks:true,gfm:true})}catch{return content}
+  },[content]);
+  return <div className="prose" dangerouslySetInnerHTML={{__html:html}}/>;
+}
+
+/* ═══════════════════════════════════════════════
+   FORMAT HELPERS
+═══════════════════════════════════════════════ */
+
+function fmtTok(n){if(!n)return'0';return n>=1000?`${(n/1000).toFixed(1)}k`:String(n)}
+function fmtN(n){return n?.toLocaleString()||'0'}
+
+function groupConvs(list){
+  const now=Date.now();
+  const td=new Date().setHours(0,0,0,0);
+  const yd=td-86400000;
+  const groups={Today:[],Yesterday:[],Earlier:[]};
+  for(const c of list){
+    const t=c.updatedAt||0;
+    if(t>=td)groups.Today.push(c);
+    else if(t>=yd)groups.Yesterday.push(c);
+    else groups.Earlier.push(c);
+  }
+  return groups;
+}
+
+function greeting(){const h=new Date().getHours();return h<12?'morning':h<17?'afternoon':'evening'}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: API KEY MODAL
+═══════════════════════════════════════════════ */
+
+function ApiKeyModal({onSave}){
+  const [key,setKey]=useState('');
+  const [err,setErr]=useState('');
+  const inp=useRef();
+  useEffect(()=>inp.current?.focus(),[]);
+
+  const save=()=>{
+    if(!key.trim()){setErr('Please enter your API key.');return}
+    if(!key.startsWith('sk-ant-')){setErr('Key should start with sk-ant-...');return}
+    onSave(key.trim());
+  };
+
+  return(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" style={{backdropFilter:'blur(4px)'}}>
+      <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl border border-gray-100 mx-4">
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5" style={{background:'#fff3ee'}}>
+          <svg width="22" height="22" fill="none" stroke="#d97757" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+          </svg>
+        </div>
+        <h2 className="text-xl font-semibold text-gray-900 mb-1">Anthropic API Key</h2>
+        <p className="text-sm text-gray-500 mb-5 leading-relaxed">Your key is stored only in this browser's localStorage and sent directly to Anthropic. It never passes through any other server.</p>
+        <input ref={inp} type="password" value={key} onChange={e=>{setKey(e.target.value);setErr('')}}
+          onKeyDown={e=>e.key==='Enter'&&save()}
+          placeholder="sk-ant-api03-..."
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm mono focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition mb-1"/>
+        {err&&<p className="text-xs text-red-500 mb-3">{err}</p>}
+        <button onClick={save}
+          className="w-full mt-3 bg-gray-900 text-white rounded-xl py-3 text-sm font-medium hover:bg-gray-800 active:scale-99 transition">
+          Continue →
+        </button>
+        <p className="text-xs text-center text-gray-400 mt-3">Get your key at console.anthropic.com</p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: LEFT SIDEBAR
+═══════════════════════════════════════════════ */
+
+function LeftSidebar({convs,currentId,onSelect,onNew,onDelete,onApiKey,isOpen,onClose}){
+  const [search,setSearch]=useState('');
+  const filtered=useMemo(()=>convs.filter(c=>c.title?.toLowerCase().includes(search.toLowerCase())),[convs,search]);
+  const groups=useMemo(()=>groupConvs(filtered),[filtered]);
+
+  return(
+    <div className={`left-sidebar w-60 flex flex-col h-full shrink-0 dark-scroll${isOpen?' open':''}`} style={{background:'#1a1a1a'}}>
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 px-4 pt-5 pb-2">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{background:'#d97757'}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+            <path d="M12 2a5 5 0 0 1 5 5v1h1a3 3 0 0 1 0 6h-1a5 5 0 0 1-5 5 5 5 0 0 1-5-5H6a3 3 0 0 1 0-6h1V7a5 5 0 0 1 5-5z"/>
+          </svg>
+        </div>
+        <span className="text-white font-semibold text-sm tracking-wide">Orchid</span>
+        <span className="ml-auto text-xs px-1.5 py-0.5 rounded-md mono" style={{background:'rgba(255,255,255,.07)',color:'#6b7280',fontSize:'10px'}}>AI</span>
+        {/* Mobile close button */}
+        {onClose&&(
+          <button onClick={onClose} className="sm:hidden p-1 rounded-lg" style={{color:'#4b5563'}}
+            onMouseEnter={e=>e.currentTarget.style.color='#9ca3af'}
+            onMouseLeave={e=>e.currentTarget.style.color='#4b5563'}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* New chat */}
+      <div className="px-3 pt-1 pb-2">
+        <button onClick={onNew}
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm transition text-gray-300"
+          style={{background:'transparent'}}
+          onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,.08)'}
+          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New chat
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 pb-2">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{background:'rgba(255,255,255,.06)'}}>
+          <svg width="12" height="12" fill="none" stroke="#6b7280" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input value={search} onChange={e=>setSearch(e.target.value)}
+            placeholder="Search chats..." className="text-xs bg-transparent flex-1" style={{color:'#d1d5db'}}/>
+          {search&&<button onClick={()=>setSearch('')} style={{color:'#6b7280',fontSize:'12px'}}>✕</button>}
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-2 dark-scroll">
+        {Object.entries(groups).map(([g,list])=>list.length>0&&(
+          <div key={g} className="mb-1">
+            <div className="px-3 py-1 text-xs font-medium" style={{color:'#4b5563',fontSize:'11px'}}>{g}</div>
+            {list.map(c=>(
+              <ConvItem key={c.id} conv={c} active={c.id===currentId}
+                onSelect={()=>onSelect(c.id)} onDelete={()=>onDelete(c.id)}/>
+            ))}
+          </div>
+        ))}
+        {convs.length===0&&(
+          <div className="px-4 py-8 text-center text-xs" style={{color:'#4b5563'}}>
+            No chats yet.<br/>Start one above.
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-3 py-3" style={{borderTop:'1px solid rgba(255,255,255,.06)'}}>
+        <button onClick={onApiKey}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition"
+          style={{color:'#4b5563'}}
+          onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,.06)'}
+          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+          <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+          Update API key
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConvItem({conv,active,onSelect,onDelete}){
+  const [hov,setHov]=useState(false);
+  return(
+    <div className={`conv-item flex items-center gap-1.5 px-3 py-2.5 rounded-xl cursor-pointer group ${active?'active':''}`}
+      onClick={onSelect} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>
+      <span className="text-xs truncate flex-1" style={{color:'#d1d5db'}}>
+        {conv.title||'New conversation'}
+      </span>
+      {hov&&(
+        <button onClick={e=>{e.stopPropagation();onDelete()}}
+          className="transition p-0.5 rounded shrink-0" style={{color:'#4b5563'}}
+          onMouseEnter={e=>e.currentTarget.style.color='#ef4444'}
+          onMouseLeave={e=>e.currentTarget.style.color='#4b5563'}>
+          <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: MODEL SELECTOR
+═══════════════════════════════════════════════ */
+
+function ModelSelector({value,onChange}){
+  const [open,setOpen]=useState(false);
+  const ref=useRef();
+  const model=MODELS.find(m=>m.id===value)||MODELS[1];
+
+  useEffect(()=>{
+    const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};
+    document.addEventListener('mousedown',h);
+    return()=>document.removeEventListener('mousedown',h);
+  },[]);
+
+  return(
+    <div ref={ref} className="relative">
+      <button onClick={()=>setOpen(!open)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm transition"
+        style={{background:'#f3f4f6'}}
+        onMouseEnter={e=>e.currentTarget.style.background='#e5e7eb'}
+        onMouseLeave={e=>e.currentTarget.style.background='#f3f4f6'}>
+        <span className="w-2 h-2 rounded-full shrink-0" style={{background:model.dot}}/>
+        <span className="font-medium text-gray-800">{model.name}</span>
+        <svg width="11" height="11" fill="none" stroke="#6b7280" strokeWidth="2.2" viewBox="0 0 24 24">
+          <path d={open?"m18 15-6-6-6 6":"m6 9 6 6 6-6"}/>
+        </svg>
+      </button>
+
+      {open&&(
+        <div className="absolute top-full mt-1.5 left-0 bg-white rounded-xl shadow-lg border border-gray-100 p-1.5 z-50 w-56 sidebar-enter">
+          {MODELS.map(m=>(
+            <button key={m.id} onClick={()=>{onChange(m.id);setOpen(false)}}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition"
+              style={{background:m.id===value?'#f9fafb':'transparent'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#f9fafb'}
+              onMouseLeave={e=>e.currentTarget.style.background=m.id===value?'#f9fafb':'transparent'}>
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:m.dot}}/>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900">{m.name}</div>
+                <div className="text-xs text-gray-400">{m.label}</div>
+              </div>
+              {m.id===value&&(
+                <svg width="13" height="13" fill="none" stroke="#d97757" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: MESSAGES
+═══════════════════════════════════════════════ */
+
+function UserMsg({msg}){
+  return(
+    <div className="flex justify-end mb-5 msg-enter">
+      <div className="max-w-[78%]">
+        {msg.attachments?.length>0&&(
+          <div className="flex flex-wrap gap-2 mb-2 justify-end">
+            {msg.attachments.map(a=>(
+              <div key={a.id}>
+                {a.thumb
+                  ? <img src={a.thumb} alt={a.name} className="msg-img" style={{maxWidth:220}}/>
+                  : <div className="att-chip">
+                      <div style={{width:24,height:24,borderRadius:4,background:a.type==='pdf'?'#fee2e2':'#eff6ff',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <svg width="11" height="11" fill="none" stroke={a.type==='pdf'?'#dc2626':'#3b82f6'} strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      </div>
+                      <span className="text-xs truncate" style={{maxWidth:120}}>{a.name}</span>
+                    </div>
+                }
+              </div>
+            ))}
+          </div>
+        )}
+        {msg.content&&(
+          <div className="px-4 py-3 rounded-2xl rounded-tr-md text-sm leading-relaxed text-gray-800"
+            style={{background:'#f3f4f6',whiteSpace:'pre-wrap'}}>
+            {msg.content}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssistantMsg({msg}){
+  return(
+    <div className="flex gap-3 mb-6 msg-enter">
+      <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+        style={{background:'#d97757'}}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
+          <path d="M12 2a5 5 0 0 1 5 5v1h1a3 3 0 0 1 0 6h-1a5 5 0 0 1-5 5 5 5 0 0 1-5-5H6a3 3 0 0 1 0-6h1V7a5 5 0 0 1 5-5z"/>
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-xs font-semibold text-gray-900">Orchid</span>
+          {msg.modelLabel&&(
+            <span className="text-xs px-2 py-0.5 rounded-full mono" style={{background:'#f3f4f6',color:'#6b7280',fontSize:'10px'}}>
+              {msg.modelLabel}
+            </span>
+          )}
+        </div>
+        <Md content={msg.content}/>
+        {msg.tokens&&(
+          <div className="mt-2 text-xs mono" style={{color:'#9ca3af',fontSize:'10px'}}>
+            {fmtN(msg.tokens.input_tokens)} in · {fmtN(msg.tokens.output_tokens)} out
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StreamingMsg({text,label}){
+  return(
+    <div className="flex gap-3 mb-6">
+      <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+        style={{background:'#d97757'}}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
+          <path d="M12 2a5 5 0 0 1 5 5v1h1a3 3 0 0 1 0 6h-1a5 5 0 0 1-5 5 5 5 0 0 1-5-5H6a3 3 0 0 1 0-6h1V7a5 5 0 0 1 5-5z"/>
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-xs font-semibold text-gray-900">Orchid</span>
+          {label&&<span className="text-xs px-2 py-0.5 rounded-full mono" style={{background:'#f3f4f6',color:'#6b7280',fontSize:'10px'}}>{label}</span>}
+        </div>
+        {text
+          ? <Md content={text}/>
+          : <div className="flex gap-1.5 items-center mt-1">
+              <div className="thinking-dot"/>
+              <div className="thinking-dot"/>
+              <div className="thinking-dot"/>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: WELCOME SCREEN
+═══════════════════════════════════════════════ */
+
+const SUGGESTIONS=[
+  'Analyze my FIRE model and suggest Roth conversion optimizations for 2026',
+  'Draft a Rule 1:10-3 enforcement motion for Hudson County Family Court',
+  'Build a Databricks pipeline to process muni bond composition files',
+  'Research ICE fixed income index business vs Bloomberg and S&P DJI',
+];
+
+function WelcomeScreen({onSend,model}){
+  return(
+    <div className="flex-1 flex flex-col items-center justify-center px-8 py-12">
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 shadow-lg"
+        style={{background:'#d97757'}}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+          <path d="M12 2a5 5 0 0 1 5 5v1h1a3 3 0 0 1 0 6h-1a5 5 0 0 1-5 5 5 5 0 0 1-5-5H6a3 3 0 0 1 0-6h1V7a5 5 0 0 1 5-5z"/>
+        </svg>
+      </div>
+      <h1 className="text-2xl font-semibold text-gray-900 mb-2">Good {greeting()}, Rohit</h1>
+      <p className="text-sm text-gray-500 mb-8 text-center max-w-sm leading-relaxed">
+        {model==='smart'
+          ? '⚡ Smart orchestration on — queries auto-route across Haiku, Sonnet, and Opus.'
+          : 'What can I help you with today?'}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg">
+        {SUGGESTIONS.map((s,i)=>(
+          <button key={i} onClick={()=>onSend(s)}
+            className="text-left p-3.5 rounded-xl text-xs leading-relaxed transition"
+            style={{border:'1px solid #e5e7eb',color:'#4b5563'}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#d97757';e.currentTarget.style.background='#fffaf8'}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#e5e7eb';e.currentTarget.style.background='transparent'}}>
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: CHAT INPUT
+═══════════════════════════════════════════════ */
+
+function ChatInput({onSend,disabled,isSmartModel,attachments,onAddFile,onRemoveAtt,onScreenshot}){
+  const [text,setText]=useState('');
+  const [menuOpen,setMenuOpen]=useState(false);
+  const [attErr,setAttErr]=useState('');
+  const ta=useRef();
+  const fileRef=useRef();
+  const menuRef=useRef();
+
+  // Close menu on outside click
+  useEffect(()=>{
+    const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setMenuOpen(false)};
+    document.addEventListener('mousedown',h);
+    return()=>document.removeEventListener('mousedown',h);
+  },[]);
+
+  const canSend=(text.trim()||attachments.length>0)&&!disabled;
+
+  const send=()=>{
+    if(!canSend)return;
+    onSend(text.trim(),attachments);
+    setText('');
+    if(ta.current)ta.current.style.height='auto';
+  };
+
+  const onKey=e=>{
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}
+  };
+  const onInput=e=>{
+    setText(e.target.value);
+    e.target.style.height='auto';
+    e.target.style.height=Math.min(e.target.scrollHeight,200)+'px';
+  };
+
+  const handleFiles=async(files)=>{
+    setAttErr('');
+    for(const file of files){
+      try{
+        const att=await processFile(file);
+        onAddFile(att);
+      }catch(e){
+        setAttErr(e.message);
+        setTimeout(()=>setAttErr(''),4000);
+      }
+    }
+  };
+
+  const handleScreenshot=async()=>{
+    setMenuOpen(false);
+    try{
+      const att=await captureScreenshot();
+      onAddFile(att);
+    }catch(e){
+      if(!e.message.includes('cancel')&&!e.message.includes('Permission'))
+        setAttErr('Screenshot failed: '+e.message);
+    }
+  };
+
+  const MENU_ITEMS=[
+    {
+      label:'Upload file',
+      sub:'Images, PDF, code, text',
+      bg:'#f0fdf4',stroke:'#16a34a',
+      icon:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+      action:()=>{setMenuOpen(false);fileRef.current.click()},
+    },
+    {
+      label:'Take screenshot',
+      sub:'Capture your screen',
+      bg:'#eff6ff',stroke:'#3b82f6',
+      icon:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>,
+      action:handleScreenshot,
+    },
+    {
+      label:'Paste image',
+      sub:'Ctrl+V / ⌘V anywhere',
+      bg:'#fdf4ff',stroke:'#9333ea',
+      icon:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
+      action:()=>setMenuOpen(false),
+      hint:true,
+    },
+    {
+      label:'Google Drive',
+      sub:'Use claude.ai for Drive',
+      bg:'#fff7ed',stroke:'#ea580c',
+      icon:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
+      disabled:true,
+      action:()=>{},
+    },
+  ];
+
+  return(
+    <div className="px-4 pb-4 pt-1">
+      <div className="max-w-3xl mx-auto">
+
+        {/* Error */}
+        {attErr&&(
+          <div className="mb-2 text-xs px-3 py-1.5 rounded-lg" style={{background:'#fef2f2',color:'#dc2626'}}>
+            {attErr}
+          </div>
+        )}
+
+        {/* Attachment chips */}
+        {attachments.length>0&&(
+          <div className="flex flex-wrap gap-1.5 mb-2 px-1">
+            {attachments.map(a=>(
+              <div key={a.id} className="att-chip">
+                {a.thumb
+                  ? <img src={a.thumb} alt={a.name} style={{width:24,height:24,objectFit:'cover',borderRadius:3}}/>
+                  : <div style={{width:24,height:24,borderRadius:3,background:a.type==='pdf'?'#fee2e2':'#eff6ff',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      <svg width="10" height="10" fill="none" stroke={a.type==='pdf'?'#dc2626':'#3b82f6'} strokeWidth="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                }
+                <span className="truncate text-xs" style={{maxWidth:100,color:'#374151'}}>{a.name}</span>
+                <button className="att-remove" onClick={()=>onRemoveAtt(a.id)}>
+                  <svg width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input box */}
+        <div className="relative bg-white rounded-2xl transition"
+          style={{border:'1px solid #e5e7eb',boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}
+          onFocusCapture={e=>e.currentTarget.style.borderColor='#d97757'}
+          onBlurCapture={e=>e.currentTarget.style.borderColor='#e5e7eb'}>
+
+          <textarea ref={ta} value={text} onChange={onInput} onKeyDown={onKey}
+            disabled={disabled}
+            placeholder={isSmartModel?'Message Orchid (Smart Mode active)…':'Message Orchid…'}
+            rows={1}
+            className="w-full px-4 py-3.5 pr-24 text-sm text-gray-800 bg-transparent resize-none rounded-2xl"
+            style={{minHeight:'52px',maxHeight:'200px',lineHeight:'1.6',paddingLeft:'44px'}}/>
+
+          {/* Attach button (bottom-left) */}
+          <div ref={menuRef} className="absolute left-3 bottom-3" style={{zIndex:10}}>
+            <button onClick={()=>setMenuOpen(!menuOpen)}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition"
+              style={{background:menuOpen?'#fff3ee':'transparent',color:menuOpen?'#d97757':'#9ca3af'}}
+              title="Attach file">
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            {menuOpen&&(
+              <div className="att-menu">
+                {MENU_ITEMS.map((item,i)=>(
+                  <div key={i}
+                    className="att-menu-item"
+                    style={{opacity:item.disabled?.45:1,cursor:item.disabled?'default':'pointer'}}
+                    onClick={item.disabled?undefined:item.action}>
+                    <div style={{width:28,height:28,borderRadius:7,background:item.bg,display:'flex',alignItems:'center',justifyContent:'center',color:item.stroke,shrink:0}}>
+                      {item.icon}
+                    </div>
+                    <div>
+                      <div style={{fontSize:'12px',fontWeight:500,color:'#1f2937'}}>{item.label}</div>
+                      <div style={{fontSize:'10px',color:'#9ca3af'}}>{item.sub}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Send button */}
+          <button onClick={send} disabled={!canSend}
+            className="absolute right-3 bottom-3 w-8 h-8 rounded-xl flex items-center justify-center transition"
+            style={{background:canSend?'#111827':'#e5e7eb'}}
+            onMouseEnter={e=>{if(canSend)e.currentTarget.style.background='#374151'}}
+            onMouseLeave={e=>{e.currentTarget.style.background=canSend?'#111827':'#e5e7eb'}}>
+            <svg width="13" height="13" fill="none" stroke="white" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Hidden file input — accepts images, PDFs, text/code */}
+        <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.js,.ts,.py,.java,.cpp,.c,.h,.sql,.xml,.yaml,.yml,.toml,.sh,.env" style={{display:'none'}}
+          onChange={e=>{handleFiles(Array.from(e.target.files));e.target.value=''}}/>
+
+        <p className="text-xs text-center mt-2" style={{color:'#d1d5db',fontSize:'11px'}}>
+          Enter to send · Shift+Enter for newline · Paste images with Ctrl+V
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: RIGHT SIDEBAR (PLANNING)
+═══════════════════════════════════════════════ */
+
+const STATUS_ICON={
+  running:()=><div className="w-3.5 h-3.5 rounded-full border-2 spin shrink-0 mt-0.5" style={{borderColor:'#d97757',borderTopColor:'transparent'}}/>,
+  done:()=>(
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" className="shrink-0 mt-0.5">
+      <path d="M20 6L9 17l-5-5"/>
+    </svg>
+  ),
+  error:()=>(
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" className="shrink-0 mt-0.5">
+      <path d="M18 6L6 18M6 6l12 12"/>
+    </svg>
+  ),
+  warn:()=>(
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" className="shrink-0 mt-0.5">
+      <path d="M12 9v4M12 17h.01M12 3l9 15H3L12 3z"/>
+    </svg>
+  ),
+};
+
+function PlanStep({step}){
+  const Icon=STATUS_ICON[step.status]||STATUS_ICON.running;
+  return(
+    <div className="bg-white rounded-xl p-3 border border-gray-100 plan-enter">
+      <div className="flex items-start gap-2">
+        <Icon/>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="text-xs font-medium text-gray-900 truncate">{step.label}</div>
+            {step.parallel&&(
+              <span className="text-xs px-1.5 py-0.5 rounded-full shrink-0"
+                style={{background:'#eff6ff',color:'#3b82f6',fontSize:'9px',fontWeight:600}}>
+                ∥ parallel
+              </span>
+            )}
+          </div>
+          {step.model&&(
+            <div className="text-xs mt-0.5" style={{color:'#9ca3af'}}>→ {step.model}</div>
+          )}
+          {step.detail&&(
+            <div className="text-xs mt-1 italic" style={{color:'#6b7280',lineHeight:'1.4',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+              {step.detail}
+            </div>
+          )}
+          {step.tokens&&(
+            <div className="text-xs mt-1 mono" style={{color:'#9ca3af',fontSize:'10px'}}>
+              {fmtN(step.tokens.input_tokens)}↑ {fmtN(step.tokens.output_tokens)}↓ tok
+              {step.cost&&<span style={{marginLeft:4,color:'#d97757'}}>{fmtUSD(step.cost)}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RightSidebar({open,onClose,steps}){
+  if(!open&&typeof window!=='undefined'&&window.innerWidth>767)return null;
+  return(
+    <div className={`right-panel w-72 flex flex-col h-full shrink-0 sidebar-enter${open?' open':''}`} style={{borderLeft:'1px solid #e5e7eb',background:'#f9fafb'}}>
+      <div className="flex items-center justify-between px-4 py-3" style={{borderBottom:'1px solid #e5e7eb'}}>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{background:'#d97757'}}/>
+          <span className="text-sm font-semibold text-gray-900">Orchestration</span>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition p-1 rounded-lg hover:bg-gray-100">
+          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {steps.length===0?(
+          <div className="text-center py-12 text-gray-400">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center mx-auto mb-3" style={{border:'1.5px dashed #d1d5db'}}>
+              <svg width="14" height="14" fill="none" stroke="#9ca3af" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+              </svg>
+            </div>
+            <p className="text-xs leading-relaxed">Planning steps appear here<br/>when using ⚡ Smart Model</p>
+          </div>
+        ):(
+          steps.map((s,i)=><PlanStep key={s.id||i} step={s}/>)
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   COMPONENT: TOKEN BAR
+═══════════════════════════════════════════════ */
+
+function TokenBar({query,chat,day,savings}){
+  const TokSec=({label,dot,tok})=>(
+    <span className="flex items-center gap-1.5">
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:dot}}/>
+      <span style={{color:'#9ca3af'}}>{label}:</span>
+      <span className="mono text-gray-600">{fmtTok(tok.inp||0)}↑ {fmtTok(tok.out||0)}↓</span>
+    </span>
+  );
+
+  const hasSavings = savings && savings.sonnetCost > 0;
+  const savedPos   = hasSavings && savings.saved > 0;
+
+  return(
+    <div className="flex items-center gap-4 px-5 py-1.5 shrink-0 flex-wrap"
+      style={{borderTop:'1px solid #f3f4f6',background:'#fafafa',fontSize:'11px',minHeight:'32px'}}>
+
+      <TokSec label="Query" dot="#f59e0b" tok={query}/>
+      <span style={{color:'#e5e7eb'}}>|</span>
+      <TokSec label="Chat" dot="#3b82f6" tok={chat}/>
+      <span style={{color:'#e5e7eb'}}>|</span>
+      <TokSec label="Today" dot="#10b981" tok={day}/>
+
+      {hasSavings&&(
+        <>
+          <span style={{color:'#e5e7eb'}}>|</span>
+          {/* Actual cost */}
+          <span className="flex items-center gap-1.5">
+            <span style={{color:'#9ca3af'}}>Cost:</span>
+            <span className="mono" style={{color:'#374151'}}>{fmtUSD(savings.actualCost)}</span>
+          </span>
+          {/* Sonnet equivalent */}
+          <span className="flex items-center gap-1.5">
+            <span style={{color:'#9ca3af'}}>vs Sonnet:</span>
+            <span className="mono" style={{color:'#9ca3af',textDecoration:'line-through'}}>{fmtUSD(savings.sonnetCost)}</span>
+          </span>
+          {/* Savings badge */}
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full mono"
+            style={{
+              background: savedPos?'#f0fdf4':'#fef2f2',
+              color: savedPos?'#16a34a':'#dc2626',
+              fontSize:'10px',
+              fontWeight:500,
+            }}>
+            {savedPos?'↓':'↑'} {savedPos?'saved ':'cost +'}{fmtUSD(Math.abs(savings.saved))}
+            {' '}({Math.abs(savings.savedPct)}%{savedPos?' cheaper':' more'})
+          </span>
+        </>
+      )}
+
+      <span className="ml-auto mono" style={{color:'#d1d5db',fontSize:'10px'}}>
+        {new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+      </span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   APP ROOT
+═══════════════════════════════════════════════ */
+
+function App(){
+  // API key
+  const [apiKey,setApiKey]=useState(()=>S.get('orchid-key')||'');
+  const [showKeyModal,setShowKeyModal]=useState(!S.get('orchid-key'));
+
+  // Conversations
+  const [convs,setConvs]=useState(()=>getConvList());
+  const [currentId,setCurrentId]=useState(null);
+  const [messages,setMessages]=useState([]);
+
+  // Model
+  const [model,setModel]=useState(()=>S.get('orchid-model')||'claude-sonnet-4-6');
+
+  // Extended thinking toggle (non-Smart mode only; Haiku doesn't support it)
+  const [thinkingOn,setThinkingOn]=useState(()=>S.get('orchid-thinking')||false);
+  const [thinkingBudget]=useState(8000); // fixed at 8k; could expose as slider later
+  const canThink = model!=='smart' && model!=='claude-haiku-4-5-20251001';
+
+  // Mobile sidebar drawer state
+  const [sidebarOpen,setSidebarOpen]=useState(false);
+
+  // Streaming
+  const [streaming,setStreaming]=useState(false);
+  const [streamText,setStreamText]=useState('');
+  const [streamLabel,setStreamLabel]=useState('');
+
+  // Planning panel
+  const [planSteps,setPlanSteps]=useState([]);
+  const [rightOpen,setRightOpen]=useState(true);
+
+  // Tokens
+  const [qTok,setQTok]=useState({inp:0,out:0});
+  const [cTok,setCTok]=useState({inp:0,out:0});
+  const [dTok,setDTok]=useState(()=>getDayTokens());
+  // Smart Model cost savings (null when not in smart mode or no query yet)
+  const [savings,setSavings]=useState(null);
+
+  // Pending attachments for current draft
+  const [pendingAtts,setPendingAtts]=useState([]);
+  // Stop / retry
+  const [stopped,setStopped]=useState(false);
+  const abortRef=useRef(null);
+  const lastQueryRef=useRef(null); // {text, attachments, apiContent} for retry
+
+  const bottomRef=useRef();
+
+  useEffect(()=>bottomRef.current?.scrollIntoView({behavior:'smooth'}),[messages,streamText]);
+  useEffect(()=>S.set('orchid-model',model),[model]);
+  useEffect(()=>S.set('orchid-thinking',thinkingOn),[thinkingOn]);
+  // Turn off thinking when switching to Haiku or Smart (they can't use it)
+  useEffect(()=>{if(!canThink)setThinkingOn(false);},[canThink]);
+
+  // Global paste → attach image from clipboard
+  useEffect(()=>{
+    const onPaste=async(e)=>{
+      const items=[...e.clipboardData.items];
+      const imgItem=items.find(i=>i.type.startsWith('image/'));
+      if(!imgItem)return;
+      e.preventDefault();
+      try{
+        const file=imgItem.getAsFile();
+        if(file){const att=await processFile(file);setPendingAtts(p=>[...p,att])}
+      }catch(err){console.warn('Paste error:',err)}
+    };
+    document.addEventListener('paste',onPaste);
+    return()=>document.removeEventListener('paste',onPaste);
+  },[]);
+
+  const addAttachment=useCallback(att=>setPendingAtts(p=>[...p,att]),[]);
+  const removeAttachment=useCallback(id=>setPendingAtts(p=>p.filter(a=>a.id!==id)),[]);
+
+  const saveKey=k=>{S.set('orchid-key',k);setApiKey(k);setShowKeyModal(false)};
+
+  // Stop the current query immediately
+  const stop=()=>{
+    if(abortRef.current){abortRef.current.abort();abortRef.current=null;}
+  };
+
+  // Retry the last query (re-sends with same text + attachments)
+  const retry=()=>{
+    const q=lastQueryRef.current;
+    if(!q)return;
+    setStopped(false);
+    // Remove the last assistant message if it was a stopped/error placeholder
+    setMessages(prev=>{
+      const last=prev[prev.length-1];
+      if(last?.role==='assistant'&&(last.stopped||last.modelLabel==='error'))
+        return prev.slice(0,-1);
+      return prev;
+    });
+    // Re-send — need a tick so messages state settles
+    setTimeout(()=>send(q.text,q.attachments,q.apiContent),0);
+  };
+
+  const newChat=()=>{
+    setCurrentId(null);setMessages([]);setPlanSteps([]);
+    setQTok({inp:0,out:0});setCTok({inp:0,out:0});setStreamText('');setSavings(null);setPendingAtts([]);
+  };
+
+  const selectConv=id=>{
+    const msgs=getMessages(id);
+    const meta=getMeta(id);
+    setCurrentId(id);setMessages(msgs);setPlanSteps([]);
+    setQTok({inp:0,out:0});setCTok(meta.chatToks||{inp:0,out:0});
+    setStreamText('');setSavings(null);setPendingAtts([]);
+    if(meta.model)setModel(meta.model);
+    setSidebarOpen(false); // close drawer on mobile after selecting
+  };
+
+  const removeConv=id=>{
+    const list=deleteConv(id);
+    setConvs(list);
+    if(currentId===id)newChat();
+  };
+
+  const send=async(text,attachments=[],prebuiltApiContent=null)=>{
+    if((!text.trim()&&attachments.length===0)||streaming)return;
+    setStopped(false);
+    setPendingAtts([]);
+
+    const attDisplay=attachments.map(({id,type,name,thumb,size,mediaType})=>({id,type,name,thumb,size,mediaType}));
+    const apiContent=prebuiltApiContent||buildApiContent(text,attachments);
+
+    // Store for retry
+    lastQueryRef.current={text,attachments,apiContent};
+
+    // Create abort controller for this query
+    const ac=new AbortController();
+    abortRef.current=ac;
+    const signal=ac.signal;
+
+    const userMsg={role:'user',content:text,apiContent,attachments:attDisplay,ts:Date.now()};
+    const convId=currentId||genId();
+    if(!currentId)setCurrentId(convId);
+    const newMsgs=[...messages,userMsg];
+    setMessages(newMsgs);
+    setStreaming(true);setStreamText('');setPlanSteps([]);setQTok({inp:0,out:0});
+
+    const apiHistory=newMsgs.map(m=>({role:m.role,content:m.apiContent||m.content}));
+    const modelInfo=MODELS.find(m2=>m2.id===model)||MODELS[1];
+
+    try{
+      let finalText='';
+      let finalUsage={input_tokens:0,output_tokens:0};
+
+      if(model==='smart'){
+        setStreamLabel('orchestrating…');
+        setSavings(null);
+        const result=await orchestrate({
+          userMessage:text||(attachments.length>0?`[${attachments.map(a=>a.name).join(', ')}]`:''),
+          apiContent,
+          attachmentNames:attachments.map(a=>({name:a.name,type:a.type})),
+          history:apiHistory.slice(0,-1),
+          apiKey,
+          signal,
+          onStep:steps=>{
+            setPlanSteps(steps);
+            if(!rightOpen)setRightOpen(true);
+          },
+          onChunk:chunk=>{finalText+=chunk;setStreamText(finalText);setStreamLabel('Sonnet')},
+        });
+        finalText=result.text;
+        finalUsage=result.usage;
+        if(result.costData)setSavings(result.costData);
+      }else{
+        setSavings(null);
+        setStreamLabel(modelInfo.short+(thinkingOn&&canThink?' 🧠':''));
+        const result=await callClaude({
+          model,
+          messages:apiHistory,
+          apiKey,
+          stream:true,
+          signal,
+          thinking:thinkingOn&&canThink,
+          thinkingBudget,
+          onChunk:chunk=>{finalText+=chunk;setStreamText(finalText)},
+        });
+        finalText=result.text;
+        finalUsage=result.usage;
+      }
+
+      const assistantMsg={
+        role:'assistant',content:finalText,ts:Date.now(),
+        modelLabel:model==='smart'?'Smart (orchestrated)':modelInfo.short,
+        tokens:finalUsage,
+      };
+      const finalMsgs=[...newMsgs,assistantMsg];
+      setMessages(finalMsgs);
+      setStreamText('');
+
+      const newQ={inp:finalUsage.input_tokens||0,out:finalUsage.output_tokens||0};
+      const newC={inp:cTok.inp+newQ.inp,out:cTok.out+newQ.out};
+      setQTok(newQ);setCTok(newC);
+      addDayTokens(newQ.inp,newQ.out);setDTok(getDayTokens());
+
+      const storeMsgs=finalMsgs.map(m=>{
+        if(m.role!=='user'||!m.attachments)return m;
+        return{...m,apiContent:undefined};
+      });
+      const title=(text||attachments[0]?.name||'New chat').slice(0,52);
+      const list=saveConv(convId,storeMsgs,title,model,newC);
+      setConvs(list);
+
+    }catch(e){
+      // Clean abort — don't pollute the conversation with an error message
+      if(e.name==='AbortError'||signal.aborted){
+        setStopped(true);
+        setStreamText('');
+        // Add a subtle "stopped" marker so retry knows what to remove
+        setMessages(prev=>[...prev,{role:'assistant',content:'',stopped:true,ts:Date.now()}]);
+        return;
+      }
+      const errMsg={
+        role:'assistant',
+        content:`⚠️ **Error:** ${e.message}\n\nCheck your API key and try again.`,
+        ts:Date.now(),modelLabel:'error',
+      };
+      setMessages([...newMsgs,errMsg]);
+      setStreamText('');
+      setStopped(true); // show retry on errors too
+    }finally{
+      setStreaming(false);setStreamLabel('');
+      abortRef.current=null;
+    }
+  };
+
+  return(
+    <div className="flex h-full bg-white overflow-hidden">
+      {showKeyModal&&<ApiKeyModal onSave={saveKey}/>}
+
+      {/* Backdrop overlays for mobile drawers */}
+      {sidebarOpen&&<div className="drawer-overlay sm:hidden" onClick={()=>setSidebarOpen(false)}/>}
+      {rightOpen&&<div className="drawer-overlay hidden max-md:block" onClick={()=>setRightOpen(false)}/>}
+
+      <LeftSidebar convs={convs} currentId={currentId}
+        onSelect={selectConv} onNew={()=>{newChat();setSidebarOpen(false)}}
+        onDelete={removeConv} onApiKey={()=>setShowKeyModal(true)}
+        isOpen={sidebarOpen} onClose={()=>setSidebarOpen(false)}/>
+
+      {/* Main column */}
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* ── Header ── */}
+        <div className="flex items-center gap-2 px-3 py-2 shrink-0"
+          style={{borderBottom:'1px solid #f3f4f6'}}>
+
+          {/* Hamburger — mobile only */}
+          <button onClick={()=>setSidebarOpen(true)}
+            className="sm:hidden p-2 rounded-xl shrink-0"
+            style={{color:'#9ca3af'}}
+            onMouseEnter={e=>e.currentTarget.style.background='#f3f4f6'}
+            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+
+          <ModelSelector value={model} onChange={setModel}/>
+
+          {/* Extended Thinking toggle — only for Sonnet/Opus, not Smart/Haiku */}
+          {canThink&&(
+            <button onClick={()=>setThinkingOn(v=>!v)}
+              title={thinkingOn?'Extended thinking ON — click to disable':'Enable extended thinking'}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition shrink-0"
+              style={{
+                background:thinkingOn?'#f5f3ff':'transparent',
+                color:thinkingOn?'#7c3aed':'#9ca3af',
+                border:thinkingOn?'1px solid #ddd6fe':'1px solid transparent',
+              }}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M9.663 17h4.673M12 3a6 6 0 0 1 6 6c0 2.22-1.2 4.16-3 5.2V16a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1.8A6.002 6.002 0 0 1 6 9a6 6 0 0 1 6-6z"/>
+              </svg>
+              <span className="hidden sm:inline">{thinkingOn?'Thinking ON':'Think'}</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {/* Smart mode pill — hide while streaming */}
+            {model==='smart'&&!streaming&&(
+              <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full"
+                style={{background:'#fff3ee',color:'#d97757'}}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{background:'#d97757',animation:'shimmer 2s infinite'}}/>
+                Smart
+              </span>
+            )}
+
+            {/* Stop button */}
+            {streaming&&(
+              <button onClick={stop}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition"
+                style={{background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca'}}>
+                <svg width="9" height="9" viewBox="0 0 9 9" fill="currentColor">
+                  <rect width="9" height="9" rx="2"/>
+                </svg>
+                <span className="hidden sm:inline">Stop</span>
+              </button>
+            )}
+
+            {/* Planning panel toggle */}
+            <button onClick={()=>setRightOpen(!rightOpen)}
+              className="p-2 rounded-xl transition"
+              style={{background:rightOpen?'#fff3ee':'transparent',color:rightOpen?'#d97757':'#9ca3af'}}
+              title="Toggle planning panel">
+              <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="18" rx="2"/>
+                <rect x="14" y="3" width="7" height="9" rx="2"/>
+                <rect x="14" y="16" width="7" height="5" rx="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Messages ── */}
+        <div className="flex-1 overflow-y-auto">
+          {messages.length===0&&!streaming
+            ? <WelcomeScreen onSend={send} model={model}/>
+            : (
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 py-5">
+                {messages
+                  .filter(m=>!(m.role==='assistant'&&m.stopped&&!m.content))
+                  .map((m,i)=>
+                    m.role==='user'
+                      ? <UserMsg key={i} msg={m}/>
+                      : <AssistantMsg key={i} msg={m}/>
+                  )
+                }
+                {streaming&&<StreamingMsg text={streamText} label={streamLabel}/>}
+                <div ref={bottomRef}/>
+              </div>
+            )
+          }
+        </div>
+
+        {/* ── Token bar ── */}
+        <TokenBar query={qTok} chat={cTok} day={dTok} savings={savings}/>
+
+        {/* ── Retry bar ── */}
+        {stopped&&!streaming&&lastQueryRef.current&&(
+          <div className="flex items-center justify-center gap-3 py-2 px-4"
+            style={{borderTop:'1px solid #fef3c7',background:'#fffbeb'}}>
+            <span className="text-xs text-amber-700">
+              {messages[messages.length-1]?.modelLabel==='error'?'⚠️ Failed':'⏹ Stopped'}
+            </span>
+            <button onClick={retry}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-medium transition"
+              style={{background:'#111827',color:'white'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#374151'}
+              onMouseLeave={e=>e.currentTarget.style.background='#111827'}>
+              <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path d="M1 4v6h6M23 20v-6h-6"/>
+                <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+              </svg>
+              Retry
+            </button>
+            <button onClick={()=>setStopped(false)}
+              className="text-xs px-2 py-1 rounded-xl"
+              style={{color:'#92400e'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#fef3c7'}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* ── Chat input ── */}
+        <ChatInput onSend={send} disabled={streaming} isSmartModel={model==='smart'}
+          attachments={pendingAtts} onAddFile={addAttachment}
+          onRemoveAtt={removeAttachment} onScreenshot={()=>{}}/>
+      </div>
+
+      {/* Right planning panel */}
+      <RightSidebar open={rightOpen} onClose={()=>setRightOpen(false)} steps={planSteps}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
